@@ -1,0 +1,3 @@
+-- V1__init.sql
+-- Placeholder. Full schema will be introduced in Phase 2 (Database Layer).
+-- This file intentionally contains no DDL statements.
