@@ -1,0 +1,28 @@
+ 
+# Several commands for building & testing the project
+
+```bash
+mvn clean package -DskipTests
+mvn clean package
+```
+
+# Run Tests
+
+## Unit tests only
+Fast, no Docker required. Tests are located in `src/test/java`.
+```bash
+mvn clean test
+```
+
+## Integration tests only
+Requires Docker (Testcontainers). Tests are located in `src/integration-test/java`.
+```bash
+mvn clean integration-test
+```
+
+## All tests (Unit + Integration)
+Requires Docker (Testcontainers).
+```bash
+mvn clean verify
+```
+
