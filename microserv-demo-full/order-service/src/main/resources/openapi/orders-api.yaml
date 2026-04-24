@@ -170,7 +170,7 @@ components:
           description: UUID of the customer placing the order
         totalAmount:
           type: number
-          format: double
+          format: java.math.BigDecimal
           description: Total monetary amount of the order
 
     OrderResponse:
@@ -188,7 +188,7 @@ components:
           description: Current order status
         totalAmount:
           type: number
-          format: double
+          format: java.math.BigDecimal
         createdAt:
           type: string
           format: date-time
