@@ -28,7 +28,8 @@ public class Order {
     @Column(name = "debug_id", insertable = false, updatable = false)
     private Long debugId;
 
-    @Column(name = "customer_id", nullable = false, updatable = false)
+    // @Column(name = "customer_id", nullable = false, updatable = false)
+    @Column(name = "customer_id", nullable = true)
     private UUID customerId;
 
     // EnumType.STRING stores the enum name (e.g. "CREATED"), not ordinal.
