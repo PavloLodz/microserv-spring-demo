@@ -2,9 +2,13 @@
 # Several commands for building & testing the project
 
 ```bash
+mvn clean install -pl common-lib
 mvn clean package -DskipTests
 mvn clean package
+
+mvn generate-sources
 ```
+
 
 # Run Tests
 
