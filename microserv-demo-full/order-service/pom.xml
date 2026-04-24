@@ -132,6 +132,10 @@
                 <interfaceOnly>true</interfaceOnly>
                 <useSpringBoot3>true</useSpringBoot3>
                 <useTags>true</useTags>
+                <!-- Disable JsonNullable wrappers: the jackson-databind-nullable artifact
+                     is not on the classpath, so the generator must not emit
+                     'import org.openapitools.jackson.nullable.*' in any model class. -->
+                <openApiNullable>false</openApiNullable>
               </configOptions>
             </configuration>
           </execution>
