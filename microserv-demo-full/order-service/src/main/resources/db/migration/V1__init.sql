@@ -6,7 +6,7 @@
 CREATE TABLE orders (
     id            UUID           NOT NULL,
     debug_id      BIGINT         GENERATED ALWAYS AS IDENTITY,
-    customer_id   UUID           NOT NULL,
+    customer_id   UUID           ,
     status        VARCHAR(20)    NOT NULL,
     total_amount  NUMERIC(19, 2) NOT NULL,
     created_at    TIMESTAMPTZ    NOT NULL,

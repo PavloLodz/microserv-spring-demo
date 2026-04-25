@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.Objects;
@@ -31,6 +33,9 @@ public class OutboxEvent {
 
     // Java type is String; columnDefinition = "jsonb" tells Hibernate the PostgreSQL column type
     // so ddl-auto=validate does not report a type mismatch.
+    // @JdbcTypeCode(SqlTypes.JSON) instructs Hibernate to bind this parameter as JSON/JSONB,
+    // preventing PostgreSQL from rejecting the implicit VARCHAR → JSONB cast.
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
     private String payload;
 
