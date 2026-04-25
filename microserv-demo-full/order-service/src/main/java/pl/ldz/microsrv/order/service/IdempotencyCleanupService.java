@@ -24,25 +24,25 @@ import java.util.List;
 @RequiredArgsConstructor
 public class IdempotencyCleanupService {
 
-    private final IdempotencyKeyRepository idempotencyKeyRepository;
+  private final IdempotencyKeyRepository idempotencyKeyRepository;
 
-    /**
+  /**
      * Deletes all expired idempotency key records.
      *
      * <p>Runs on the cron schedule defined by {@code idempotency.cleanup-cron}
      * (default: {@code "0 0 * * * *"} — top of every hour).
      */
-    @Scheduled(cron = "${idempotency.cleanup-cron:0 0 * * * *}")
-    public void cleanupExpired() {
-        try {
-            List<IdempotencyKey> expired = idempotencyKeyRepository.findByExpiresAtBefore(OffsetDateTime.now());
-            int count = expired.size();
-            if (count > 0) {
-                idempotencyKeyRepository.deleteAll(expired);
-            }
-            log.info("Deleted {} expired idempotency keys", count);
-        } catch (Exception e) {
-            log.error("Unexpected error during idempotency key cleanup", e);
-        }
+  @Scheduled(cron = "${idempotency.cleanup-cron:0 0 * * * *}")
+  public void cleanupExpired() {
+    try {
+      List<IdempotencyKey> expired = idempotencyKeyRepository.findByExpiresAtBefore(OffsetDateTime.now());
+      int count = expired.size();
+      if (count > 0) {
+        idempotencyKeyRepository.deleteAll(expired);
+      }
+      log.info("Deleted {} expired idempotency keys", count);
+    } catch (Exception e) {
+      log.error("Unexpected error during idempotency key cleanup", e);
     }
+  }
 }

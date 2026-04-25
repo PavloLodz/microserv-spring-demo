@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public interface IdempotencyKeyRepository extends JpaRepository<IdempotencyKey, UUID> {
 
-    Optional<IdempotencyKey> findByKey(String key);
+  Optional<IdempotencyKey> findByKey(String key);
 
-    List<IdempotencyKey> findByExpiresAtBefore(OffsetDateTime cutoff);
+  List<IdempotencyKey> findByExpiresAtBefore(OffsetDateTime cutoff);
 }

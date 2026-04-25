@@ -31,17 +31,17 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OutboxService {
 
-    private static final String TOPIC = "orders.events.v1";
-    private static final String PENDING = "PENDING";
-    private static final String PROCESSED = "PROCESSED";
+  private static final String TOPIC = "orders.events.v1";
+  private static final String PENDING = "PENDING";
+  private static final String PROCESSED = "PROCESSED";
 
-    private final OutboxEventRepository outboxEventRepository;
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
+  private final OutboxEventRepository outboxEventRepository;
+  private final KafkaTemplate<String, String> kafkaTemplate;
+  private final ObjectMapper objectMapper;
 
-    // ── Write Path ────────────────────────────────────────────────────────────
+  // ── Write Path ────────────────────────────────────────────────────────────
 
-    /**
+  /**
      * Persists an outbox event within the caller's active transaction.
      * If serialisation fails, a {@link RuntimeException} is thrown so the
      * wrapping transaction rolls back.
@@ -50,30 +50,30 @@ public class OutboxService {
      * @param eventType   e.g. {@code "ORDER_CREATED"}
      * @param payload     domain event object to serialise to JSON
      */
-    public void saveEvent(UUID aggregateId, String eventType, Object payload) {
-        String json;
-        try {
-            json = objectMapper.writeValueAsString(payload);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialise outbox payload for eventType=" + eventType, e);
-        }
-
-        OutboxEvent event = new OutboxEvent();
-        event.setId(Generators.timeBasedEpochGenerator().generate());
-        event.setAggregateType("ORDER");
-        event.setAggregateId(aggregateId);
-        event.setEventType(eventType);
-        event.setPayload(json);
-        event.setStatus(PENDING);
-        event.setCreatedAt(OffsetDateTime.now());
-
-        outboxEventRepository.save(event);
-        log.debug("Outbox event saved: id={}, eventType={}", event.getId(), eventType);
+  public void saveEvent(UUID aggregateId, String eventType, Object payload) {
+    String json;
+    try {
+      json = objectMapper.writeValueAsString(payload);
+    } catch (JsonProcessingException e) {
+      throw new RuntimeException("Failed to serialise outbox payload for eventType=" + eventType, e);
     }
 
-    // ── Background Worker ─────────────────────────────────────────────────────
+    OutboxEvent event = new OutboxEvent();
+    event.setId(Generators.timeBasedEpochGenerator().generate());
+    event.setAggregateType("ORDER");
+    event.setAggregateId(aggregateId);
+    event.setEventType(eventType);
+    event.setPayload(json);
+    event.setStatus(PENDING);
+    event.setCreatedAt(OffsetDateTime.now());
 
-    /**
+    outboxEventRepository.save(event);
+    log.debug("Outbox event saved: id={}, eventType={}", event.getId(), eventType);
+  }
+
+  // ── Background Worker ─────────────────────────────────────────────────────
+
+  /**
      * Polls for pending outbox events and publishes them to Kafka.
      * Runs on a fixed delay (default 5 s, configurable via {@code outbox.poll-interval-ms}).
      *
@@ -81,30 +81,30 @@ public class OutboxService {
      * for the next cycle — the method itself never throws so the scheduler thread
      * remains alive.
      */
-    @Scheduled(fixedDelayString = "${outbox.poll-interval-ms:5000}")
-    @Transactional
-    public void pollAndPublish() {
+  @Scheduled(fixedDelayString = "${outbox.poll-interval-ms:5000}")
+  @Transactional
+  public void pollAndPublish() {
+    try {
+      List<OutboxEvent> pending = outboxEventRepository.findByStatusOrderByCreatedAtAsc(PENDING);
+
+      for (OutboxEvent row : pending) {
         try {
-            List<OutboxEvent> pending = outboxEventRepository.findByStatusOrderByCreatedAtAsc(PENDING);
+          // Blocking send — ensures success/failure is known before marking the row
+          kafkaTemplate.send(TOPIC, row.getAggregateId().toString(), row.getPayload()).get();
 
-            for (OutboxEvent row : pending) {
-                try {
-                    // Blocking send — ensures success/failure is known before marking the row
-                    kafkaTemplate.send(TOPIC, row.getAggregateId().toString(), row.getPayload()).get();
+          row.setStatus(PROCESSED);
+          row.setProcessedAt(OffsetDateTime.now());
+          outboxEventRepository.save(row);
+          log.info("Outbox event published: id={}, eventType={}", row.getId(), row.getEventType());
 
-                    row.setStatus(PROCESSED);
-                    row.setProcessedAt(OffsetDateTime.now());
-                    outboxEventRepository.save(row);
-                    log.info("Outbox event published: id={}, eventType={}", row.getId(), row.getEventType());
-
-                } catch (Exception e) {
-                    log.error("Failed to publish outbox event: id={}, eventType={}", row.getId(), row.getEventType(), e);
-                    // Leave row as PENDING for the next poll cycle — do not rethrow
-                }
-            }
         } catch (Exception e) {
-            // Guard against unexpected errors to prevent killing the scheduler thread
-            log.error("Unexpected error in OutboxService.pollAndPublish", e);
+          log.error("Failed to publish outbox event: id={}, eventType={}", row.getId(), row.getEventType(), e);
+          // Leave row as PENDING for the next poll cycle — do not rethrow
         }
+      }
+    } catch (Exception e) {
+      // Guard against unexpected errors to prevent killing the scheduler thread
+      log.error("Unexpected error in OutboxService.pollAndPublish", e);
     }
+  }
 }

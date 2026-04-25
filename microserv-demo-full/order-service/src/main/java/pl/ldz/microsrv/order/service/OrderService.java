@@ -40,15 +40,15 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final OrderRepository orderRepository;
-    private final OrderMapper orderMapper;
-    private final IdempotencyService idempotencyService;
-    private final OutboxService outboxService;
-    private final ObjectMapper objectMapper;
+  private final OrderRepository orderRepository;
+  private final OrderMapper orderMapper;
+  private final IdempotencyService idempotencyService;
+  private final OutboxService outboxService;
+  private final ObjectMapper objectMapper;
 
-    // ── Create ────────────────────────────────────────────────────────────────
+  // ── Create ────────────────────────────────────────────────────────────────
 
-    /**
+  /**
      * Creates a new order with idempotency support.
      *
      * <ol>
@@ -59,81 +59,81 @@ public class OrderService {
      *   <li>Persists, writes the outbox event, marks the key completed, and returns the DTO.</li>
      * </ol>
      */
-    @Transactional
-    public OrderResponse createOrder(OrderRequest request, String idempotencyKey) {
-        // Idempotency gate — return stored response on replay
-        Optional<String> cached = idempotencyService.checkAndStore(idempotencyKey, request);
-        if (cached.isPresent()) {
-            try {
-                return objectMapper.readValue(cached.get(), OrderResponse.class);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to deserialise cached idempotency response", e);
-            }
-        }
-
-        UUID id = Generators.timeBasedEpochGenerator().generate();
-
-        Order order = orderMapper.toEntity(request);
-        order.setId(id);
-        order.setStatus(OrderStatus.CREATED);
-        order.setCreatedAt(OffsetDateTime.now());
-        order.setUpdatedAt(OffsetDateTime.now());
-
-        Order saved = orderRepository.save(order);
-
-        // Write outbox event within the same transaction
-        OrderCreatedEvent event = new OrderCreatedEvent(
-                saved.getId(), saved.getCustomerId(), saved.getTotalAmount(), Instant.now());
-        outboxService.saveEvent(saved.getId(), "ORDER_CREATED", event);
-
-        OrderResponse response = orderMapper.toResponse(saved);
-
-        // Seal the idempotency record
-        try {
-            String responseJson = objectMapper.writeValueAsString(response);
-            idempotencyService.markCompleted(idempotencyKey, responseJson);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to serialise OrderResponse for idempotency record", e);
-        }
-
-        log.info("Order created: id={}, idempotencyKey={}", saved.getId(), idempotencyKey);
-        return response;
+  @Transactional
+  public OrderResponse createOrder(OrderRequest request, String idempotencyKey) {
+    // Idempotency gate — return stored response on replay
+    Optional<String> cached = idempotencyService.checkAndStore(idempotencyKey, request);
+    if (cached.isPresent()) {
+      try {
+        return objectMapper.readValue(cached.get(), OrderResponse.class);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to deserialise cached idempotency response", e);
+      }
     }
 
-    // ── Read (single) ─────────────────────────────────────────────────────────
+    UUID id = Generators.timeBasedEpochGenerator().generate();
 
-    /**
+    Order order = orderMapper.toEntity(request);
+    order.setId(id);
+    order.setStatus(OrderStatus.CREATED);
+    order.setCreatedAt(OffsetDateTime.now());
+    order.setUpdatedAt(OffsetDateTime.now());
+
+    Order saved = orderRepository.save(order);
+
+    // Write outbox event within the same transaction
+    OrderCreatedEvent event = new OrderCreatedEvent(
+        saved.getId(), saved.getCustomerId(), saved.getTotalAmount(), Instant.now());
+    outboxService.saveEvent(saved.getId(), "ORDER_CREATED", event);
+
+    OrderResponse response = orderMapper.toResponse(saved);
+
+    // Seal the idempotency record
+    try {
+      String responseJson = objectMapper.writeValueAsString(response);
+      idempotencyService.markCompleted(idempotencyKey, responseJson);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to serialise OrderResponse for idempotency record", e);
+    }
+
+    log.info("Order created: id={}, idempotencyKey={}", saved.getId(), idempotencyKey);
+    return response;
+  }
+
+  // ── Read (single) ─────────────────────────────────────────────────────────
+
+  /**
      * Returns a single non-deleted order by its external UUID.
      *
      * @throws OrderNotFoundException if no live order with {@code id} exists
      */
-    @Transactional(readOnly = true)
-    public OrderResponse getOrder(UUID id) {
-        Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new OrderNotFoundException(id));
-        return orderMapper.toResponse(order);
-    }
+  @Transactional(readOnly = true)
+  public OrderResponse getOrder(UUID id) {
+    Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
+        .orElseThrow(() -> new OrderNotFoundException(id));
+    return orderMapper.toResponse(order);
+  }
 
-    // ── Read (list) ───────────────────────────────────────────────────────────
+  // ── Read (list) ───────────────────────────────────────────────────────────
 
-    /**
+  /**
      * Returns a page of non-deleted orders, optionally filtered by {@code customerId}.
      *
      * <p>When {@code customerId} is {@code null} all non-deleted orders are returned;
      * otherwise only those belonging to the specified customer.
      */
-    @Transactional(readOnly = true)
-    public Page<OrderResponse> listOrders(UUID customerId, Pageable pageable) {
-        Page<Order> page = (customerId != null)
-                ? orderRepository.findByCustomerIdAndDeletedAtIsNull(customerId, pageable)
-                : orderRepository.findByDeletedAtIsNull(pageable);
+  @Transactional(readOnly = true)
+  public Page<OrderResponse> listOrders(UUID customerId, Pageable pageable) {
+    Page<Order> page = (customerId != null)
+        ? orderRepository.findByCustomerIdAndDeletedAtIsNull(customerId, pageable)
+        : orderRepository.findByDeletedAtIsNull(pageable);
 
-        return page.map(orderMapper::toResponse);
-    }
+    return page.map(orderMapper::toResponse);
+  }
 
-    // ── Update ────────────────────────────────────────────────────────────────
+  // ── Update ────────────────────────────────────────────────────────────────
 
-    /**
+  /**
      * Updates the mutable fields of an existing order with optional idempotency support.
      *
      * <p>Only {@code totalAmount} is accepted from the request body — {@code status} is
@@ -144,86 +144,86 @@ public class OrderService {
      *
      * @throws OrderNotFoundException if no live order with {@code id} exists
      */
-    @Transactional
-    public OrderResponse updateOrder(UUID id, OrderRequest request, String idempotencyKey) {
-        // Idempotency gate (optional for PUT)
-        if (idempotencyKey != null) {
-            Optional<String> cached = idempotencyService.checkAndStore(idempotencyKey, request);
-            if (cached.isPresent()) {
-                try {
-                    return objectMapper.readValue(cached.get(), OrderResponse.class);
-                } catch (Exception e) {
-                    throw new RuntimeException("Failed to deserialise cached idempotency response", e);
-                }
-            }
+  @Transactional
+  public OrderResponse updateOrder(UUID id, OrderRequest request, String idempotencyKey) {
+    // Idempotency gate (optional for PUT)
+    if (idempotencyKey != null) {
+      Optional<String> cached = idempotencyService.checkAndStore(idempotencyKey, request);
+      if (cached.isPresent()) {
+        try {
+          return objectMapper.readValue(cached.get(), OrderResponse.class);
+        } catch (Exception e) {
+          throw new RuntimeException("Failed to deserialise cached idempotency response", e);
         }
-
-        Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new OrderNotFoundException(id));
-
-        order.setTotalAmount(request.getTotalAmount());
-        order.setUpdatedAt(OffsetDateTime.now());
-
-        Order saved = orderRepository.save(order);
-
-        // Write outbox event within the same transaction
-        OrderUpdatedEvent event = new OrderUpdatedEvent(
-                saved.getId(), saved.getCustomerId(), saved.getTotalAmount(),
-                saved.getStatus(), Instant.now());
-        outboxService.saveEvent(saved.getId(), "ORDER_UPDATED", event);
-
-        OrderResponse response = orderMapper.toResponse(saved);
-
-        // Seal the idempotency record if key was provided
-        if (idempotencyKey != null) {
-            try {
-                String responseJson = objectMapper.writeValueAsString(response);
-                idempotencyService.markCompleted(idempotencyKey, responseJson);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to serialise OrderResponse for idempotency record", e);
-            }
-        }
-
-        log.info("Order updated: id={}, idempotencyKey={}", saved.getId(), idempotencyKey);
-        return response;
+      }
     }
 
-    // ── Delete (soft) ─────────────────────────────────────────────────────────
+    Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
+        .orElseThrow(() -> new OrderNotFoundException(id));
 
-    /**
+    order.setTotalAmount(request.getTotalAmount());
+    order.setUpdatedAt(OffsetDateTime.now());
+
+    Order saved = orderRepository.save(order);
+
+    // Write outbox event within the same transaction
+    OrderUpdatedEvent event = new OrderUpdatedEvent(
+        saved.getId(), saved.getCustomerId(), saved.getTotalAmount(),
+        saved.getStatus(), Instant.now());
+    outboxService.saveEvent(saved.getId(), "ORDER_UPDATED", event);
+
+    OrderResponse response = orderMapper.toResponse(saved);
+
+    // Seal the idempotency record if key was provided
+    if (idempotencyKey != null) {
+      try {
+        String responseJson = objectMapper.writeValueAsString(response);
+        idempotencyService.markCompleted(idempotencyKey, responseJson);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to serialise OrderResponse for idempotency record", e);
+      }
+    }
+
+    log.info("Order updated: id={}, idempotencyKey={}", saved.getId(), idempotencyKey);
+    return response;
+  }
+
+  // ── Delete (soft) ─────────────────────────────────────────────────────────
+
+  /**
      * Soft-deletes an order by setting {@code deletedAt} to the current timestamp.
      * After this call the order is excluded from all repository query methods that
      * filter on {@code deletedAtIsNull}.
      *
      * @throws OrderNotFoundException if no live order with {@code id} exists
      */
-    @Transactional
-    public void deleteOrder(UUID id, String idempotencyKey) {
-        // Idempotency gate (optional for DELETE)
-        if (idempotencyKey != null) {
-            Optional<String> cached = idempotencyService.checkAndStore(idempotencyKey, id.toString());
-            if (cached.isPresent()) {
-                return; // 204 has no body — replay is a no-op
-            }
-        }
-
-        Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new OrderNotFoundException(id));
-
-        order.setDeletedAt(OffsetDateTime.now());
-        order.setUpdatedAt(OffsetDateTime.now());
-
-        orderRepository.save(order);
-
-        // Write outbox event within the same transaction
-        OrderDeletedEvent event = new OrderDeletedEvent(order.getId(), Instant.now());
-        outboxService.saveEvent(order.getId(), "ORDER_DELETED", event);
-
-        // Seal the idempotency record (no response body for 204)
-        if (idempotencyKey != null) {
-            idempotencyService.markCompleted(idempotencyKey, null);
-        }
-
-        log.info("Order soft-deleted: id={}, idempotencyKey={}", id, idempotencyKey);
+  @Transactional
+  public void deleteOrder(UUID id, String idempotencyKey) {
+    // Idempotency gate (optional for DELETE)
+    if (idempotencyKey != null) {
+      Optional<String> cached = idempotencyService.checkAndStore(idempotencyKey, id.toString());
+      if (cached.isPresent()) {
+        return; // 204 has no body — replay is a no-op
+      }
     }
+
+    Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
+        .orElseThrow(() -> new OrderNotFoundException(id));
+
+    order.setDeletedAt(OffsetDateTime.now());
+    order.setUpdatedAt(OffsetDateTime.now());
+
+    orderRepository.save(order);
+
+    // Write outbox event within the same transaction
+    OrderDeletedEvent event = new OrderDeletedEvent(order.getId(), Instant.now());
+    outboxService.saveEvent(order.getId(), "ORDER_DELETED", event);
+
+    // Seal the idempotency record (no response body for 204)
+    if (idempotencyKey != null) {
+      idempotencyService.markCompleted(idempotencyKey, null);
+    }
+
+    log.info("Order soft-deleted: id={}, idempotencyKey={}", id, idempotencyKey);
+  }
 }
