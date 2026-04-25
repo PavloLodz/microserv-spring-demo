@@ -96,7 +96,7 @@ class OrderServiceTest {
       OrderResponse expectedResponse = new OrderResponse();
       when(orderMapper.toResponse(any(Order.class))).thenReturn(expectedResponse);
 
-      OrderResponse result = orderService.createOrder(request);
+      OrderResponse result = orderService.createOrder(request, null);
 
       // repository.save() called exactly once
       verify(orderRepository, times(1)).save(any(Order.class));
@@ -216,7 +216,7 @@ class OrderServiceTest {
       when(orderMapper.toResponse(any(Order.class))).thenReturn(expectedResponse);
 
       // Small sleep to guarantee clock advancement on fast machines
-      OrderResponse result = orderService.updateOrder(id, request);
+      OrderResponse result = orderService.updateOrder(id, request, null);
 
       ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
       verify(orderRepository).save(captor.capture());
@@ -236,7 +236,7 @@ class OrderServiceTest {
       UUID id = UUID.randomUUID();
       when(orderRepository.findByIdAndDeletedAtIsNull(id)).thenReturn(Optional.empty());
 
-      assertThatThrownBy(() -> orderService.updateOrder(id, buildRequest()))
+      assertThatThrownBy(() -> orderService.updateOrder(id, buildRequest(), null))
           .isInstanceOf(OrderNotFoundException.class)
           .hasMessageContaining(id.toString());
     }
@@ -258,7 +258,7 @@ class OrderServiceTest {
       when(orderRepository.findByIdAndDeletedAtIsNull(id)).thenReturn(Optional.of(order));
       when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
-      orderService.deleteOrder(id);
+      orderService.deleteOrder(id, null);
 
       ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
       verify(orderRepository).save(captor.capture());
@@ -275,7 +275,7 @@ class OrderServiceTest {
       UUID id = UUID.randomUUID();
       when(orderRepository.findByIdAndDeletedAtIsNull(id)).thenReturn(Optional.empty());
 
-      assertThatThrownBy(() -> orderService.deleteOrder(id))
+      assertThatThrownBy(() -> orderService.deleteOrder(id, null))
           .isInstanceOf(OrderNotFoundException.class)
           .hasMessageContaining(id.toString());
     }

@@ -143,6 +143,9 @@
                      'import org.openapitools.jackson.nullable.*' in any model class. -->
                 <openApiNullable>false</openApiNullable>
               </configOptions>
+              <typeMappings>
+                <typeMapping>number=java.math.BigDecimal</typeMapping>
+              </typeMappings>
             </configuration>
           </execution>
         </executions>

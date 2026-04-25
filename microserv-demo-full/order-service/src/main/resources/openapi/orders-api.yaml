@@ -14,6 +14,12 @@ paths:
       tags: [orders]
       operationId: createOrder
       summary: Create a new order
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -29,6 +35,18 @@ paths:
                 $ref: '#/components/schemas/OrderResponse'
         '400':
           description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency key already in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request body does not match stored hash for this key
           content:
             application/json:
               schema:
@@ -102,6 +120,11 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -133,6 +156,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request body does not match stored hash for this key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     delete:
       tags: [orders]
@@ -145,11 +174,28 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
       responses:
         '204':
           description: Order deleted successfully
         '404':
           description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency key already in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request body does not match stored hash for this key
           content:
             application/json:
               schema:
@@ -170,7 +216,6 @@ components:
           description: UUID of the customer placing the order
         totalAmount:
           type: number
-          format: java.math.BigDecimal
           description: Total monetary amount of the order
 
     OrderResponse:
@@ -188,7 +233,6 @@ components:
           description: Current order status
         totalAmount:
           type: number
-          format: java.math.BigDecimal
         createdAt:
           type: string
           format: date-time

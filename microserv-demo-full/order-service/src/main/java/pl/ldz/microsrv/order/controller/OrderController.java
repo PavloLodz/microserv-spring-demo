@@ -35,8 +35,8 @@ public class OrderController implements OrdersApi {
      * <p>Returns {@code 201 Created} with a {@code Location} header pointing to the new resource.
      */
     @Override
-    public ResponseEntity<OrderResponse> createOrder(OrderRequest orderRequest) {
-        OrderResponse response = orderService.createOrder(orderRequest);
+    public ResponseEntity<OrderResponse> createOrder(String idempotencyKey, OrderRequest orderRequest) {
+        OrderResponse response = orderService.createOrder(orderRequest, idempotencyKey);
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
                 .path("/{id}")
@@ -87,8 +87,8 @@ public class OrderController implements OrdersApi {
      * or {@code 404}/{@code 409} via the global handler.
      */
     @Override
-    public ResponseEntity<OrderResponse> updateOrder(UUID id, OrderRequest orderRequest) {
-        return ResponseEntity.ok(orderService.updateOrder(id, orderRequest));
+    public ResponseEntity<OrderResponse> updateOrder(UUID id, OrderRequest orderRequest, String idempotencyKey) {
+        return ResponseEntity.ok(orderService.updateOrder(id, orderRequest, idempotencyKey));
     }
 
     /**
@@ -98,8 +98,8 @@ public class OrderController implements OrdersApi {
      * or {@code 404} via the global handler.
      */
     @Override
-    public ResponseEntity<Void> deleteOrder(UUID id) {
-        orderService.deleteOrder(id);
+    public ResponseEntity<Void> deleteOrder(UUID id, String idempotencyKey) {
+        orderService.deleteOrder(id, idempotencyKey);
         return ResponseEntity.noContent().build();
     }
 }

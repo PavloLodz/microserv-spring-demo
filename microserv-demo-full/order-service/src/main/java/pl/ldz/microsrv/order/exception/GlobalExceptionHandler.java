@@ -58,6 +58,27 @@ public class GlobalExceptionHandler {
         "The resource was modified concurrently. Please retry.", request.getRequestURI());
   }
 
+  // ── 409 Conflict — idempotency key in progress ───────────────────────────
+
+  @ExceptionHandler(IdempotencyConflictException.class)
+  @ResponseStatus(HttpStatus.CONFLICT)
+  public ErrorResponse handleIdempotencyConflict(
+      IdempotencyConflictException ex, HttpServletRequest request) {
+    log.warn("Idempotency conflict on {}: {}", request.getRequestURI(), ex.getMessage());
+    return buildError(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), request.getRequestURI());
+  }
+
+  // ── 422 Unprocessable Entity — idempotency hash mismatch ─────────────────
+
+  @ExceptionHandler(IdempotencyMismatchException.class)
+  @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+  public ErrorResponse handleIdempotencyMismatch(
+      IdempotencyMismatchException ex, HttpServletRequest request) {
+    log.warn("Idempotency mismatch on {}: {}", request.getRequestURI(), ex.getMessage());
+    return buildError(HttpStatus.UNPROCESSABLE_ENTITY, "Unprocessable Entity",
+        ex.getMessage(), request.getRequestURI());
+  }
+
   // ── 500 Internal Server Error (fallback) ─────────────────────────────────
 
   @ExceptionHandler(Exception.class)

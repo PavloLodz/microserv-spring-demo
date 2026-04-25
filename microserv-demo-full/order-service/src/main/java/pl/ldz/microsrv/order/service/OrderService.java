@@ -48,7 +48,7 @@ public class OrderService {
    * </ol>
    */
   @Transactional
-  public OrderResponse createOrder(OrderRequest request) {
+  public OrderResponse createOrder(OrderRequest request, String idempotencyKey) {
     UUID id = Generators.timeBasedEpochGenerator().generate();
 
     Order order = orderMapper.toEntity(request);
@@ -108,7 +108,7 @@ public class OrderService {
    * @throws OrderNotFoundException if no live order with {@code id} exists
    */
   @Transactional
-  public OrderResponse updateOrder(UUID id, OrderRequest request) {
+  public OrderResponse updateOrder(UUID id, OrderRequest request, String idempotencyKey) {
     Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
         .orElseThrow(() -> new OrderNotFoundException(id));
 
@@ -131,7 +131,7 @@ public class OrderService {
    * @throws OrderNotFoundException if no live order with {@code id} exists
    */
   @Transactional
-  public void deleteOrder(UUID id) {
+  public void deleteOrder(UUID id, String idempotencyKey) {
     Order order = orderRepository.findByIdAndDeletedAtIsNull(id)
         .orElseThrow(() -> new OrderNotFoundException(id));
 
