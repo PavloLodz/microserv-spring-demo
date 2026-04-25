@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,14 +20,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integration tests for {@code OrderController} running against a real PostgreSQL container
- * (via Testcontainers) with a fully started Spring Boot application context.
+ * and Kafka container (via Testcontainers) with a fully started Spring Boot application context.
  *
  * <p>Tests cover the full HTTP request/response cycle: routing, serialization,
  * business logic through {@code OrderService}, persistence via JPA + Flyway,
  * and error responses through {@code GlobalExceptionHandler}.
  *
+ * <p>All write operations (POST, PUT, DELETE) include the {@code Idempotency-Key} header
+ * as required by the API contract. Each test uses a fresh key to avoid cross-test replay hits.
+ *
  * <p>No {@code debugId} must appear in any response body — verified in each test that
  * inspects a response JSON string.
+ *
+ * <p>If Docker is not available the entire class is skipped (not failed) via the
+ * assumption in {@link AbstractControllerIT#requireDocker()}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -34,7 +41,19 @@ class OrderControllerIT extends AbstractControllerIT {
 
     private static final String ORDERS_URL = "/api/v1/orders";
 
-    // ── Helper ────────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Returns a fresh {@code Idempotency-Key} header value (random UUID). */
+    private static String newIdempotencyKey() {
+        return UUID.randomUUID().toString();
+    }
+
+    /** Builds an {@link HttpHeaders} map with a fresh idempotency key. */
+    private static HttpHeaders idempotencyHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Idempotency-Key", newIdempotencyKey());
+        return headers;
+    }
 
     private OrderRequest validRequest() {
         OrderRequest req = new OrderRequest();
@@ -50,16 +69,24 @@ class OrderControllerIT extends AbstractControllerIT {
         return req;
     }
 
+    /** POST helper that always includes a fresh {@code Idempotency-Key} header. */
+    private ResponseEntity<OrderResponse> createOrder(OrderRequest request) {
+        return restTemplate.exchange(
+                ORDERS_URL,
+                HttpMethod.POST,
+                new HttpEntity<>(request, idempotencyHeaders()),
+                OrderResponse.class);
+    }
+
     // ── POST /api/v1/orders ───────────────────────────────────────────────────
 
     /**
-     * 8.3 — Happy path: 201 response, Location header, valid body.
+     * Happy path: 201 response, Location header, valid body, no debugId.
      */
     @Test
     @org.junit.jupiter.api.Order(1)
     void createOrder_happyPath_returns201() {
-        ResponseEntity<OrderResponse> response =
-                restTemplate.postForEntity(ORDERS_URL, validRequest(), OrderResponse.class);
+        ResponseEntity<OrderResponse> response = createOrder(validRequest());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getHeaders().getLocation()).isNotNull();
@@ -72,21 +99,27 @@ class OrderControllerIT extends AbstractControllerIT {
         assertThat(body.getCreatedAt()).isNotNull();
         assertThat(body.getUpdatedAt()).isNotNull();
 
-        // 8.13 — debugId must not appear
-        ResponseEntity<String> raw =
-                restTemplate.postForEntity(ORDERS_URL, validRequest(), String.class);
+        // debugId must not appear in any response
+        ResponseEntity<String> raw = restTemplate.exchange(
+                ORDERS_URL,
+                HttpMethod.POST,
+                new HttpEntity<>(validRequest(), idempotencyHeaders()),
+                String.class);
         assertThat(raw.getBody()).doesNotContain("debugId");
     }
 
     /**
-     * 8.4 — Invalid body (null required fields) → 400.
+     * Invalid body (null required fields) → 400.
      */
     @Test
     @org.junit.jupiter.api.Order(2)
     void createOrder_invalidBody_returns400() {
         OrderRequest bad = new OrderRequest(); // no customerId, no totalAmount
-        ResponseEntity<String> response =
-                restTemplate.postForEntity(ORDERS_URL, bad, String.class);
+        ResponseEntity<String> response = restTemplate.exchange(
+                ORDERS_URL,
+                HttpMethod.POST,
+                new HttpEntity<>(bad, idempotencyHeaders()),
+                String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
@@ -94,15 +127,12 @@ class OrderControllerIT extends AbstractControllerIT {
     // ── GET /api/v1/orders/{id} ───────────────────────────────────────────────
 
     /**
-     * 8.5 — Found: 200 with correct data.
+     * Found: 200 with correct data.
      */
     @Test
     @org.junit.jupiter.api.Order(3)
     void getOrder_found_returns200() {
-        // Create an order first
-        OrderResponse created = restTemplate
-                .postForEntity(ORDERS_URL, validRequest(), OrderResponse.class)
-                .getBody();
+        OrderResponse created = createOrder(validRequest()).getBody();
         assertThat(created).isNotNull();
 
         ResponseEntity<OrderResponse> response =
@@ -114,7 +144,7 @@ class OrderControllerIT extends AbstractControllerIT {
     }
 
     /**
-     * 8.6 — Unknown id → 404.
+     * Unknown id → 404.
      */
     @Test
     @org.junit.jupiter.api.Order(4)
@@ -129,7 +159,7 @@ class OrderControllerIT extends AbstractControllerIT {
     // ── GET /api/v1/orders ────────────────────────────────────────────────────
 
     /**
-     * 8.7 — List all: 200 with valid OrderListResponse.
+     * List all: 200 with valid OrderListResponse.
      */
     @Test
     @org.junit.jupiter.api.Order(5)
@@ -143,7 +173,7 @@ class OrderControllerIT extends AbstractControllerIT {
     }
 
     /**
-     * 8.8 — List with customerId filter: only matching orders returned.
+     * List with customerId filter: only matching orders returned.
      */
     @Test
     @org.junit.jupiter.api.Order(6)
@@ -151,9 +181,8 @@ class OrderControllerIT extends AbstractControllerIT {
         UUID targetCustomer = UUID.randomUUID();
         UUID otherCustomer = UUID.randomUUID();
 
-        // Create one order for the target customer and one for another
-        restTemplate.postForEntity(ORDERS_URL, validRequest(targetCustomer), OrderResponse.class);
-        restTemplate.postForEntity(ORDERS_URL, validRequest(otherCustomer), OrderResponse.class);
+        createOrder(validRequest(targetCustomer));
+        createOrder(validRequest(otherCustomer));
 
         ResponseEntity<OrderListResponse> response = restTemplate.getForEntity(
                 ORDERS_URL + "?customerId=" + targetCustomer, OrderListResponse.class);
@@ -168,14 +197,12 @@ class OrderControllerIT extends AbstractControllerIT {
     // ── PUT /api/v1/orders/{id} ───────────────────────────────────────────────
 
     /**
-     * 8.9 — Happy path: 200 with updated fields.
+     * Happy path: 200 with updated fields.
      */
     @Test
     @org.junit.jupiter.api.Order(7)
     void updateOrder_happyPath_returns200() {
-        OrderResponse created = restTemplate
-                .postForEntity(ORDERS_URL, validRequest(), OrderResponse.class)
-                .getBody();
+        OrderResponse created = createOrder(validRequest()).getBody();
         assertThat(created).isNotNull();
 
         OrderRequest updateReq = new OrderRequest();
@@ -185,7 +212,7 @@ class OrderControllerIT extends AbstractControllerIT {
         ResponseEntity<OrderResponse> response = restTemplate.exchange(
                 ORDERS_URL + "/" + created.getId(),
                 HttpMethod.PUT,
-                new HttpEntity<>(updateReq),
+                new HttpEntity<>(updateReq, idempotencyHeaders()),
                 OrderResponse.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -194,7 +221,7 @@ class OrderControllerIT extends AbstractControllerIT {
     }
 
     /**
-     * 8.10 — Unknown id → 404.
+     * Unknown id → 404.
      */
     @Test
     @org.junit.jupiter.api.Order(8)
@@ -202,7 +229,7 @@ class OrderControllerIT extends AbstractControllerIT {
         ResponseEntity<String> response = restTemplate.exchange(
                 ORDERS_URL + "/" + UUID.randomUUID(),
                 HttpMethod.PUT,
-                new HttpEntity<>(validRequest()),
+                new HttpEntity<>(validRequest(), idempotencyHeaders()),
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -211,32 +238,29 @@ class OrderControllerIT extends AbstractControllerIT {
     // ── DELETE /api/v1/orders/{id} ────────────────────────────────────────────
 
     /**
-     * 8.11 — Happy path: 204; subsequent GET returns 404.
+     * Happy path: 204; subsequent GET returns 404.
      */
     @Test
     @org.junit.jupiter.api.Order(9)
     void deleteOrder_happyPath_returns204_thenGetReturns404() {
-        OrderResponse created = restTemplate
-                .postForEntity(ORDERS_URL, validRequest(), OrderResponse.class)
-                .getBody();
+        OrderResponse created = createOrder(validRequest()).getBody();
         assertThat(created).isNotNull();
 
         ResponseEntity<Void> deleteResponse = restTemplate.exchange(
                 ORDERS_URL + "/" + created.getId(),
                 HttpMethod.DELETE,
-                HttpEntity.EMPTY,
+                new HttpEntity<>(null, idempotencyHeaders()),
                 Void.class);
 
         assertThat(deleteResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
-        // Subsequent GET must return 404
         ResponseEntity<String> getResponse =
                 restTemplate.getForEntity(ORDERS_URL + "/" + created.getId(), String.class);
         assertThat(getResponse.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     /**
-     * 8.12 — Unknown id → 404.
+     * Unknown id → 404.
      */
     @Test
     @org.junit.jupiter.api.Order(10)
@@ -244,7 +268,7 @@ class OrderControllerIT extends AbstractControllerIT {
         ResponseEntity<String> response = restTemplate.exchange(
                 ORDERS_URL + "/" + UUID.randomUUID(),
                 HttpMethod.DELETE,
-                HttpEntity.EMPTY,
+                new HttpEntity<>(null, idempotencyHeaders()),
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);

@@ -34,5 +34,17 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
 
+  task:
+    scheduling:
+      pool:
+        size: 2
+
 server:
   port: 8080
+
+outbox:
+  poll-interval-ms: 5000
+
+idempotency:
+  ttl-hours: 24
+  cleanup-cron: "0 0 * * * *"
