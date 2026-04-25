@@ -1,5 +1,6 @@
 package pl.ldz.microsrv.order;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -15,12 +16,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Base class for controller integration tests.
@@ -31,8 +33,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * {@code @SpringBootTest(webEnvironment = RANDOM_PORT)} and inherit both containers.
  *
  * <p>If Docker is not available in the current environment the entire test class is
- * <em>skipped</em> (not failed) via a JUnit assumption in {@link #requireDocker()}.
- * This prevents a "no Docker" environment from producing a BUILD FAILURE.
+ * <em>failed</em> (not failed) via a JUnit assumption in {@link #requireDocker()}.
+ * This is a BUILD FAILURE.
  *
  * <p>Both containers are declared {@code static} so JUnit 5 reuses them across all test
  * methods in the same class, avoiding repeated container start/stop overhead.
@@ -47,15 +49,15 @@ public abstract class AbstractControllerIT {
                     .withUsername("test")
                     .withPassword("test");
 
-    @Container
+    @Container // TODO: Is 'org.testcontainers.containers.KafkaContainer' deprecated ?
     protected static final KafkaContainer KAFKA =
             new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"));
 
     /**
-     * Skips the entire test class when Docker is not reachable.
+     * Fails the entire test class when Docker is not reachable.
      *
-     * <p>A skipped test does not count as an error, so the build remains GREEN in
-     * environments where Docker is unavailable (CI without DinD, restricted sandboxes, etc.).
+     * <p>It is a problem, so the build in not GREEN in environments where
+     * Docker is unavailable (CI without DinD, restricted sandboxes, etc.).
      */
     @BeforeAll
     static void requireDocker() {
@@ -70,7 +72,7 @@ public abstract class AbstractControllerIT {
             fail("DockerClientFactory.instance() == null");
         }
         if (!DockerClientFactory.instance().isDockerAvailable()) {
-            fail("DockerClientFactory.instance().isDockerAvailable() is not available!");
+            fail("DockerClientFactory.instance().isDockerAvailable() == false, so it is not available!");
         }
     }
 
@@ -86,8 +88,8 @@ public abstract class AbstractControllerIT {
         registry.add("spring.kafka.bootstrap-servers", KAFKA::getBootstrapServers);
     }
 
-    @Autowired
-    protected TestRestTemplate restTemplate;
+    @Autowired protected TestRestTemplate restTemplate;
+    @Autowired protected ObjectMapper objectMapper;
 
     /**
      * Creates a ready-to-poll {@link KafkaConsumer} subscribed to {@code orders.events.v1}.
@@ -108,5 +110,9 @@ public abstract class AbstractControllerIT {
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
         consumer.subscribe(List.of("orders.events.v1"));
         return consumer;
+    }
+
+    protected String sha256Hex(byte[] data) throws NoSuchAlgorithmException {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
     }
 }

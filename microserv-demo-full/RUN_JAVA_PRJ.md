@@ -30,3 +30,6 @@ Requires Docker (Testcontainers).
 mvn clean verify
 ```
 
+mvn dependency:tree | grep docker-java
+cat ~/.testcontainers.properties
+
