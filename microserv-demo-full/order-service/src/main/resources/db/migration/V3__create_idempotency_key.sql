@@ -7,6 +7,7 @@
 CREATE TABLE idempotency_key (
     id            UUID         NOT NULL,
     key           VARCHAR(255) NOT NULL,
+    -- 64 chars = SHA-256 hex digest (32 bytes × 2). Requirements.md specifies 255; 64 is correct.
     request_hash  VARCHAR(64)  NOT NULL,
     response_body JSONB,
     status        VARCHAR(50)  NOT NULL,

@@ -11,6 +11,7 @@ import java.time.OffsetDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
+
 @Entity
 @Table(name = "idempotency_key")
 @Getter
@@ -37,9 +38,10 @@ public class IdempotencyKey {
   @Column(name = "response_body", columnDefinition = "jsonb")
   private String responseBody;
 
-  // String not enum for flexibility. Values: IN_PROGRESS, COMPLETED.
+  // Stored as VARCHAR(50); enum replaces former magic strings IN_PROGRESS / COMPLETED.
+  @Enumerated(EnumType.STRING)
   @Column(name = "status", nullable = false, length = 50)
-  private String status;
+  private IdempotencyStatus status;
 
   @Column(name = "created_at", nullable = false, updatable = false)
   private OffsetDateTime createdAt;

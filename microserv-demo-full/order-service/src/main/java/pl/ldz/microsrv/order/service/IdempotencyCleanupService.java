@@ -8,14 +8,13 @@ import pl.ldz.microsrv.order.entity.IdempotencyKey;
 import pl.ldz.microsrv.order.repository.IdempotencyKeyRepository;
 
 import java.time.OffsetDateTime;
-import java.util.List;
 
 /**
  * Scheduled cleanup service that removes expired {@link IdempotencyKey} records.
  *
  * <p>Runs on a configurable cron schedule (default: every hour at the top of the hour).
- * Deletes all rows where {@code expiresAt} is before the current time in a single
- * {@code deleteAll} call to avoid N+1 deletes.
+ * Deletes all rows where {@code expiresAt} is before the current time using a single
+ * bulk-delete JPQL query to avoid loading entity objects into heap memory.
  *
  * <p>Any exception is caught and logged at ERROR so the scheduler thread is never killed.
  */
@@ -27,19 +26,19 @@ public class IdempotencyCleanupService {
   private final IdempotencyKeyRepository idempotencyKeyRepository;
 
   /**
-     * Deletes all expired idempotency key records.
-     *
-     * <p>Runs on the cron schedule defined by {@code idempotency.cleanup-cron}
-     * (default: {@code "0 0 * * * *"} — top of every hour).
-     */
+   * Deletes all expired idempotency key records in a single bulk-delete statement.
+   *
+   * <p>Covers both {@code COMPLETED} rows past their TTL and stranded {@code IN_PROGRESS}
+   * rows left by crashed requests — both are eligible for cleanup once {@code expiresAt}
+   * has passed.
+   *
+   * <p>Runs on the cron schedule defined by {@code idempotency.cleanup-cron}
+   * (default: {@code "0 0 * * * *"} — top of every hour).
+   */
   @Scheduled(cron = "${idempotency.cleanup-cron:0 0 * * * *}")
   public void cleanupExpired() {
     try {
-      List<IdempotencyKey> expired = idempotencyKeyRepository.findByExpiresAtBefore(OffsetDateTime.now());
-      int count = expired.size();
-      if (count > 0) {
-        idempotencyKeyRepository.deleteAll(expired);
-      }
+      int count = idempotencyKeyRepository.deleteAllExpiredBefore(OffsetDateTime.now());
       log.info("Deleted {} expired idempotency keys", count);
     } catch (Exception e) {
       log.error("Unexpected error during idempotency key cleanup", e);

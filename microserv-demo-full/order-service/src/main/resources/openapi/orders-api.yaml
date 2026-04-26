@@ -20,6 +20,8 @@ paths:
           required: true
           schema:
             type: string
+            minLength: 1
+            maxLength: 255
       requestBody:
         required: true
         content:
@@ -125,6 +127,8 @@ paths:
           required: false
           schema:
             type: string
+            minLength: 1
+            maxLength: 255
       requestBody:
         required: true
         content:
@@ -179,6 +183,8 @@ paths:
           required: false
           schema:
             type: string
+            minLength: 1
+            maxLength: 255
       responses:
         '204':
           description: Order deleted successfully

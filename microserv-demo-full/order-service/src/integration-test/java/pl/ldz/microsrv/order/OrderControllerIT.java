@@ -496,4 +496,161 @@ class OrderControllerIT extends AbstractControllerIT {
           });
     }
   }
+
+  // ── Phase 5: Step 8 — 422 hash-mismatch integration tests ───────────────
+
+  /**
+   * 8.1 + 8.3: POST with same {@code Idempotency-Key} but a different request body
+   * must return 422 Unprocessable Entity with a populated {@link pl.ldz.microsrv.order.api.model.ErrorResponse}
+   * and must never expose {@code debugId}.
+   */
+  @Test
+  @org.junit.jupiter.api.Order(16)
+  void createOrder_sameKeyDifferentBody_returns422() {
+    String key1 = newIdempotencyKey();
+
+    // 8.1-a: First POST with key1 → 201
+    OrderRequest firstRequest = validRequest();
+    firstRequest.setTotalAmount(new BigDecimal("55.00"));
+    ResponseEntity<OrderResponse> firstResp = createOrder(firstRequest, key1);
+    assertThat(firstResp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+    // 8.1-b: Second POST with same key1 but different totalAmount → 422
+    OrderRequest differentRequest = new OrderRequest();
+    differentRequest.setCustomerId(firstRequest.getCustomerId());
+    differentRequest.setTotalAmount(new BigDecimal("999.00")); // different body → different hash
+
+    ResponseEntity<String> secondResp = restTemplate.exchange(
+        ORDERS_URL,
+        HttpMethod.POST,
+        new HttpEntity<>(differentRequest, idempotencyHeaders(key1)),
+        String.class);
+
+    assertThat(secondResp.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+    // 8.1-c: ErrorResponse body is non-null, message is present and non-blank
+    String body = secondResp.getBody();
+    assertThat(body).isNotNull();
+    assertThat(body).contains("\"message\"");
+    assertThat(body).contains("\"status\"");
+    assertThat(body).contains("422");
+
+    // 8.3: No debugId in response
+    assertThat(body).doesNotContain("debugId");
+  }
+
+  /**
+   * 8.2 + 8.3: PUT with same {@code Idempotency-Key} but a different request body
+   * must return 422 Unprocessable Entity with a populated {@link pl.ldz.microsrv.order.api.model.ErrorResponse}
+   * and must never expose {@code debugId}.
+   */
+  @Test
+  @org.junit.jupiter.api.Order(17)
+  void updateOrder_sameKeyDifferentBody_returns422() {
+    // Setup: create an order first (with its own fresh key)
+    OrderResponse created = createOrder(validRequest()).getBody();
+    assertThat(created).isNotNull();
+    String orderId = created.getId().toString();
+
+    String key2 = newIdempotencyKey();
+
+    // 8.2-a: First PUT with key2 → 200
+    OrderRequest firstUpdate = new OrderRequest();
+    firstUpdate.setCustomerId(created.getCustomerId());
+    firstUpdate.setTotalAmount(new BigDecimal("150.00"));
+
+    ResponseEntity<OrderResponse> firstResp = restTemplate.exchange(
+        ORDERS_URL + "/" + orderId,
+        HttpMethod.PUT,
+        new HttpEntity<>(firstUpdate, idempotencyHeaders(key2)),
+        OrderResponse.class);
+    assertThat(firstResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+    // 8.2-b: Second PUT with same key2 but different totalAmount → 422
+    OrderRequest differentUpdate = new OrderRequest();
+    differentUpdate.setCustomerId(created.getCustomerId());
+    differentUpdate.setTotalAmount(new BigDecimal("777.00")); // different body → different hash
+
+    ResponseEntity<String> secondResp = restTemplate.exchange(
+        ORDERS_URL + "/" + orderId,
+        HttpMethod.PUT,
+        new HttpEntity<>(differentUpdate, idempotencyHeaders(key2)),
+        String.class);
+
+    assertThat(secondResp.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+    // 8.2-c: ErrorResponse body is non-null, status field contains 422
+    String body = secondResp.getBody();
+    assertThat(body).isNotNull();
+    assertThat(body).contains("\"message\"");
+    assertThat(body).contains("\"status\"");
+    assertThat(body).contains("422");
+
+    // 8.3: No debugId in response
+    assertThat(body).doesNotContain("debugId");
+  }
+
+  // ── Phase 5: 7.6 Race-condition — concurrent POSTs with same key ──────────
+
+  /**
+   * 7.6: Two concurrent POST requests with the identical {@code Idempotency-Key} must
+   * produce exactly one 201 and one 409 — never two 201s and never a 500.
+   *
+   * <p>A PostgreSQL transaction-scoped advisory lock ({@code pg_try_advisory_xact_lock})
+   * in {@code IdempotencyService.checkAndStore} serialises the two threads at the
+   * database level, so the second thread fails to acquire the lock and receives
+   * {@code IdempotencyConflictException} → HTTP 409.
+   */
+  @Test
+  @org.junit.jupiter.api.Order(15)
+  void createOrder_concurrentSameKey_exactlyOneSucceeds() throws Exception {
+    String sharedKey = newIdempotencyKey();
+    OrderRequest request = validRequest();
+
+    java.util.concurrent.ExecutorService executor =
+        java.util.concurrent.Executors.newFixedThreadPool(2);
+    java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+
+    java.util.concurrent.Future<ResponseEntity<String>> f1 = executor.submit(() -> {
+      startLatch.await();
+      return restTemplate.exchange(
+          ORDERS_URL,
+          HttpMethod.POST,
+          new HttpEntity<>(request, idempotencyHeaders(sharedKey)),
+          String.class);
+    });
+
+    java.util.concurrent.Future<ResponseEntity<String>> f2 = executor.submit(() -> {
+      startLatch.await();
+      return restTemplate.exchange(
+          ORDERS_URL,
+          HttpMethod.POST,
+          new HttpEntity<>(request, idempotencyHeaders(sharedKey)),
+          String.class);
+    });
+
+    // Release both threads simultaneously
+    startLatch.countDown();
+
+    ResponseEntity<String> r1 = f1.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    ResponseEntity<String> r2 = f2.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    executor.shutdown();
+
+    int status1 = r1.getStatusCode().value();
+    int status2 = r2.getStatusCode().value();
+
+    // Neither response may be 500 (unhandled exception)
+    assertThat(status1).as("response 1 must not be 500").isNotEqualTo(500);
+    assertThat(status2).as("response 2 must not be 500").isNotEqualTo(500);
+
+    // Exactly one 201 and one 409 (order is irrelevant)
+    assertThat(new int[]{status1, status2})
+        .as("one request must succeed with 201 and the other must conflict with 409")
+        .containsExactlyInAnyOrder(201, 409);
+
+    // Exactly one order row in the DB for this run
+    Integer orderCount = jdbcTemplate.queryForObject(
+        "SELECT COUNT(*) FROM orders", Integer.class);
+    assertThat(orderCount).isEqualTo(1);
+  }
 }

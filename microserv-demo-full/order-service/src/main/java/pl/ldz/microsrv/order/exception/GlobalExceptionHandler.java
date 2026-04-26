@@ -2,6 +2,8 @@ package pl.ldz.microsrv.order.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
@@ -47,6 +49,15 @@ public class GlobalExceptionHandler {
     return buildError(HttpStatus.BAD_REQUEST, "Bad Request", message, request.getRequestURI());
   }
 
+  // Bad input from the client (e.g. invalid Idempotency-Key length) — not a server fault.
+  @ExceptionHandler(IllegalArgumentException.class)
+  @ResponseStatus(HttpStatus.BAD_REQUEST)
+  public ErrorResponse handleIllegalArgument(
+      IllegalArgumentException ex, HttpServletRequest request) {
+    log.debug("Bad request on {}: {}", request.getRequestURI(), ex.getMessage());
+    return buildError(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage(), request.getRequestURI());
+  }
+
   // ── 409 Conflict ──────────────────────────────────────────────────────────
 
   @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
@@ -56,6 +67,28 @@ public class GlobalExceptionHandler {
     log.warn("Optimistic locking conflict on {}", request.getRequestURI());
     return buildError(HttpStatus.CONFLICT, "Conflict",
         "The resource was modified concurrently. Please retry.", request.getRequestURI());
+  }
+
+  // Pessimistic lock timeout — another request holds the row lock on the idempotency key.
+  @ExceptionHandler(PessimisticLockingFailureException.class)
+  @ResponseStatus(HttpStatus.CONFLICT)
+  public ErrorResponse handlePessimisticLock(
+      PessimisticLockingFailureException ex, HttpServletRequest request) {
+    log.warn("Pessimistic locking timeout on {}", request.getRequestURI());
+    return buildError(HttpStatus.CONFLICT, "Conflict",
+        "The request is already being processed. Please retry shortly.", request.getRequestURI());
+  }
+
+  // Safety-net: unique constraint violation on idempotency_key.key — advisory lock should
+  // prevent this in normal operation, but a fallback 409 is far better than a 500.
+  @ExceptionHandler(DataIntegrityViolationException.class)
+  @ResponseStatus(HttpStatus.CONFLICT)
+  public ErrorResponse handleDataIntegrity(
+      DataIntegrityViolationException ex, HttpServletRequest request) {
+    log.warn("Data integrity violation on {} (possible concurrent duplicate key): {}",
+        request.getRequestURI(), ex.getMessage());
+    return buildError(HttpStatus.CONFLICT, "Conflict",
+        "The request is already being processed. Please retry shortly.", request.getRequestURI());
   }
 
   // ── 409 Conflict — idempotency key in progress ───────────────────────────
