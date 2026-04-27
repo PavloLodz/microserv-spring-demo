@@ -50,6 +50,14 @@ public class OutboxEvent {
   @Column(name = "processed_at")
   private OffsetDateTime processedAt;
 
+  // Retry counter: incremented by the poller on each failed Kafka publish attempt.
+  // When retryCount reaches the configured threshold (outbox.max-retry, default 5),
+  // the row transitions from PENDING to FAILED so poison-pill events are quarantined.
+  // Primitive int (not Integer) to prevent null ambiguity; DEFAULT 0 in the DB schema
+  // (added by migration V5) ensures all rows start at zero without a data migration.
+  @Column(name = "retry_count", nullable = false)
+  private int retryCount;
+
   // No @Version field: the outbox worker performs a single-writer status transition
   // and does not need optimistic locking.
 
@@ -67,6 +75,6 @@ public class OutboxEvent {
 
   @Override
   public String toString() {
-    return "OutboxEvent{id=" + id + ", eventType=" + eventType + ", status=" + status + "}";
+    return "OutboxEvent{id=" + id + ", eventType=" + eventType + ", status=" + status + ", retryCount=" + retryCount + "}";
   }
 }

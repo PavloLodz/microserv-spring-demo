@@ -44,6 +44,13 @@ server:
 
 outbox:
   poll-interval-ms: 5000
+  # Maximum number of Kafka publish attempts before a row is transitioned to FAILED.
+  # Poison-pill events (e.g. unroutable topics, permanently unserializable payloads)
+  # are quarantined after this many retries so they no longer block the poll cycle.
+  max-retry: 5
+  # Maximum number of PENDING rows loaded per poll cycle.
+  # Caps memory usage under backlog conditions; the next cycle drains remaining rows.
+  poll-batch-size: 100
 
 idempotency:
   ttl-hours: 24

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.ldz.microsrv.order.api.model.ErrorResponse;
+import pl.ldz.microsrv.order.exception.OutboxSerializationException;
 
 import java.time.OffsetDateTime;
 import java.util.stream.Collectors;
@@ -110,6 +111,18 @@ public class GlobalExceptionHandler {
     log.warn("Idempotency mismatch on {}: {}", request.getRequestURI(), ex.getMessage());
     return buildError(HttpStatus.UNPROCESSABLE_ENTITY, "Unprocessable Entity",
         ex.getMessage(), request.getRequestURI());
+  }
+
+  // ── 500 Internal Server Error — outbox serialisation ─────────────────────
+
+  @ExceptionHandler(OutboxSerializationException.class)
+  @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+  public ErrorResponse handleOutboxSerialization(
+          OutboxSerializationException ex, HttpServletRequest request) {
+      log.error("Outbox serialisation failure on {}: {}",
+                request.getRequestURI(), ex.getMessage(), ex);
+      return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
+                        "An unexpected error occurred.", request.getRequestURI());
   }
 
   // ── 500 Internal Server Error (fallback) ─────────────────────────────────

@@ -653,4 +653,5 @@ class OrderControllerIT extends AbstractControllerIT {
         "SELECT COUNT(*) FROM orders", Integer.class);
     assertThat(orderCount).isEqualTo(1);
   }
+
 }
