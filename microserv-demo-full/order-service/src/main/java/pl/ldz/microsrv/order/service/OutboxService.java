@@ -38,7 +38,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OutboxService {
 
-  private static final String TOPIC = "orders.events.v1";
   private static final String PENDING = "PENDING";
   private static final String PROCESSED = "PROCESSED";
   private static final String FAILED = "FAILED";
@@ -52,6 +51,9 @@ public class OutboxService {
 
   @Value("${outbox.poll-batch-size:100}")
   private int pollBatchSize;
+
+  @Value("${kafka.topic.orders-events:orders.events.v1}")
+  private String topic;
 
   /**
    * Self-reference to allow Spring's proxy to intercept {@code @Transactional(REQUIRES_NEW)}
@@ -163,7 +165,7 @@ public class OutboxService {
           MDC.put("eventType", row.getEventType());
           try {
             // Blocking send — ensures success/failure is known before marking the row
-            kafkaTemplate.send(TOPIC, row.getAggregateId().toString(), row.getPayload()).get();
+            kafkaTemplate.send(topic, row.getAggregateId().toString(), row.getPayload()).get();
             self.markProcessed(row);
           } catch (Exception e) {
             self.markFailed(row);

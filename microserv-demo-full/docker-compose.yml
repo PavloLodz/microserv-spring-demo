@@ -6,6 +6,12 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
+  # Two listeners are required so that both Docker-networked containers and host-machine
+  # processes can reach the broker:
+  #   PLAINTEXT://kafka:29092        — for containers inside the same Compose network
+  #                                    (inter-service comms; use bootstrap-servers=kafka:29092)
+  #   PLAINTEXT_HOST://localhost:9092 — for applications running on the host machine
+  #                                    (e.g. `java -jar`; use bootstrap-servers=localhost:9092)
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     depends_on:
@@ -13,9 +19,17 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Reject produces to unknown topics; all topics must be created explicitly via the
+      # KafkaTopicConfig Spring bean on order-service startup — no silent broker auto-creation.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     ports:
+      # Host port 9092 → PLAINTEXT_HOST listener; lets developers run order-service on
+      # the host with the default bootstrap-servers=localhost:9092 (application.yml fallback).
       - "9092:9092"
 
   orders-db:

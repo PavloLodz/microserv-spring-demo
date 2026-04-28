@@ -27,12 +27,21 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-    consumer:
-      group-id: order-service
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # The outbox payload is already a JSON string when it reaches the producer.
+      # StringSerializer sends the bytes as-is; JsonSerializer would double-encode it
+      # into a quoted/escaped string that consumers cannot parse as a JSON object.
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Leader + all in-sync replicas must acknowledge before the send() future completes
+      acks: all
+      # Kafka-level retries for transient network errors; distinct from outbox.max-retry
+      retries: 3
+      properties:
+        # Prevents duplicate Kafka messages when the producer retries a failed send
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    # No @KafkaListener or @EnableKafka consumer exists in order-service.
+    # The consumer config block has been intentionally removed to avoid dead configuration
+    # that would confuse future readers. Re-add it explicitly if a consumer is needed.
 
   task:
     scheduling:
@@ -47,6 +56,11 @@ outbox:
   # Maximum number of Kafka publish attempts before a row is transitioned to FAILED.
   # Poison-pill events (e.g. unroutable topics, permanently unserializable payloads)
   # are quarantined after this many retries so they no longer block the poll cycle.
+  # NOTE — two independent retry layers:
+  #   spring.kafka.producer.retries — retries within a single kafkaTemplate.send() call,
+  #     before the CompletableFuture resolves (handles transient network blips).
+  #   outbox.max-retry — retries across separate poller cycles when the entire send attempt
+  #     fails after all Kafka-level retries are exhausted (handles longer outages).
   max-retry: 5
   # Maximum number of PENDING rows loaded per poll cycle.
   # Caps memory usage under backlog conditions; the next cycle drains remaining rows.
@@ -55,3 +69,14 @@ outbox:
 idempotency:
   ttl-hours: 24
   cleanup-cron: "0 0 * * * *"
+
+# Kafka topic configuration.
+# KafkaAdmin (auto-configured by Spring Boot when spring-kafka is on the classpath) picks
+# up all NewTopic beans defined in KafkaTopicConfig and creates or updates topics on startup.
+# NOTE — orders-events-replicas: 1 is correct for a single-broker local setup.
+# Raise this to 3 (or equal to the broker count) in any multi-broker environment.
+kafka:
+  topic:
+    orders-events: orders.events.v1
+    orders-events-partitions: 3
+    orders-events-replicas: 1

@@ -1,6 +1,7 @@
 package pl.ldz.microsrv.order;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -477,6 +479,14 @@ class OrderControllerIT extends AbstractControllerIT {
           assertThat(processedCount).isEqualTo(1);
         });
 
+    // 13.5.4b Verify event_type column is ORDER_CREATED for this outbox row
+    String eventType = jdbcTemplate.queryForObject(
+        "SELECT event_type FROM outbox_event WHERE aggregate_id = ?::uuid LIMIT 1",
+        String.class, orderId);
+    assertThat(eventType)
+        .as("outbox_event.event_type must be ORDER_CREATED")
+        .isEqualTo("ORDER_CREATED");
+
     // 13.5.5–13.5.6 Poll Kafka; assert message received with correct key; no debugId
     try (KafkaConsumer<String, String> consumer = createTestConsumer("test-" + UUID.randomUUID())) {
       AtomicBoolean found = new AtomicBoolean(false);
@@ -488,6 +498,20 @@ class OrderControllerIT extends AbstractControllerIT {
               if (orderId.equals(record.key())) {
                 found.set(true);
                 assertThat(record.value()).doesNotContain("debugId");
+                // 13.5.7 Payload must be a JSON object (not a double-encoded quoted string)
+                // and must carry the correct orderId field matching the partition key.
+                assertThatCode(() -> {
+                  JsonNode node = objectMapper.readTree(record.value());
+                  assertThat(node.isObject())
+                      .as("Kafka message value must be a JSON object, not a quoted string")
+                      .isTrue();
+                  assertThat(node.has("orderId"))
+                      .as("Kafka message payload must contain 'orderId' field")
+                      .isTrue();
+                  assertThat(node.get("orderId").asText())
+                      .as("orderId in payload must match the partition key")
+                      .isEqualTo(orderId);
+                }).doesNotThrowAnyException();
               }
             });
             assertThat(found.get())

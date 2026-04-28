@@ -11,5 +11,24 @@
 
   <dependencies>
     <!-- Basic dependencies if needed, but records are in Java 17+ -->
+
+    <!--
+      jackson-databind in 'provided' scope lets consumer services running outside Spring Boot
+      deserialize these event records with a plain ObjectMapper without depending on spring-kafka
+      or any Spring artifact. Spring Boot applications already supply jackson-databind
+      transitively via spring-boot-starter-web, so this declaration causes no duplication.
+
+      Note: the Instant fields in all three event records require jackson-datatype-jsr310 at
+      runtime to be serialized/deserialized as ISO-8601 strings rather than numeric epoch arrays.
+      Spring Boot applications get it automatically via:
+        spring-boot-starter-web -> jackson-databind -> jackson-datatype-jsr310
+      Standalone consumers must add jackson-datatype-jsr310 explicitly and register
+      JavaTimeModule on their ObjectMapper.
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
 </project>

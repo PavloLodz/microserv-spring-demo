@@ -55,6 +55,7 @@ class OutboxServiceTest {
     ReflectionTestUtils.setField(outboxService, "self", outboxService);
     ReflectionTestUtils.setField(outboxService, "maxRetry", 5);
     ReflectionTestUtils.setField(outboxService, "pollBatchSize", 100);
+    ReflectionTestUtils.setField(outboxService, "topic", "orders.events.v1");
   }
 
   // ── 15.2 saveEvent — persists correct row ─────────────────────────────────
