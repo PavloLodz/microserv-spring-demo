@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  logback-spring.xml — Profile-aware logging configuration for order-service.
+
+  Profiles:
+    local, test  →  Human-readable coloured console output.
+                    All five MDC fields are included in the pattern so developers
+                    can see debugId, id, idempotencyKey inline without parsing JSON.
+
+    prod         →  Newline-delimited JSON via LogstashEncoder.
+                    All MDC fields (debugId, id, idempotencyKey, orderId, eventType)
+                    are included automatically by LogstashEncoder — no explicit field
+                    declarations are required (Task 7.5).
+
+  The <springProfile> tags require the spring-boot logback integration, which is
+  activated automatically when the file is named logback-spring.xml (not logback.xml).
+-->
+<configuration>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       local + test  —  Coloured, human-readable console (Task 7.3)
+       ══════════════════════════════════════════════════════════════════════ -->
+  <springProfile name="local,test">
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+        <!--
+          Pattern fields (left → right):
+            %d{HH:mm:ss.SSS}     timestamp
+            %highlight(%-5level) coloured log level, left-padded to 5 chars
+            %36logger{36}        logger name, truncated to 36 chars
+            [%X{debugId}]        per-request correlation UUID (set by MdcFilter)
+            [id=%X{id}]          order UUIDv7 (set by OrderService after save)
+            [ik=%X{idempotencyKey}]  Idempotency-Key header value (set by MdcFilter)
+            %msg%n               log message and newline
+        -->
+        <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) %36logger{36} [dbg=%X{debugId}] [id=%X{id}] [ik=%X{idempotencyKey}] %msg%n</pattern>
+      </encoder>
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <!-- Reduce framework noise in local/test runs -->
+    <logger name="org.springframework"         level="WARN"/>
+    <logger name="org.hibernate"               level="WARN"/>
+    <logger name="com.zaxxer.hikari"           level="WARN"/>
+    <logger name="org.apache.kafka"            level="WARN"/>
+    <!-- Application code at DEBUG so MDC fields are visible during development -->
+    <logger name="pl.ldz.microsrv"             level="DEBUG"/>
+
+  </springProfile>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       prod  —  Newline-delimited JSON via LogstashEncoder (Task 7.4)
+       ══════════════════════════════════════════════════════════════════════ -->
+  <springProfile name="prod">
+
+    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+      <!--
+        LogstashEncoder emits one JSON object per log line.
+        Standard fields it always includes:
+          @timestamp, @version, message, logger_name, thread_name, level, level_value
+
+        MDC fields included automatically (Task 7.5 — no explicit fieldNames needed):
+          debugId, id, idempotencyKey, orderId, eventType
+
+        Each JSON object is terminated by a newline, making the output compatible with
+        log-shipping agents that expect NDJSON (Logstash, Fluentd, Vector, etc.).
+      -->
+      <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+        <!-- Include caller info (class + line) for ERROR and above only to keep throughput high -->
+        <includeCallerData>false</includeCallerData>
+        <!-- Ensure the service name appears in every line for multi-service log aggregation -->
+        <customFields>{"service":"order-service"}</customFields>
+      </encoder>
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="CONSOLE_JSON"/>
+    </root>
+
+    <!-- Suppress verbose framework logs in prod; only WARN and above surface -->
+    <logger name="org.springframework"         level="WARN"/>
+    <logger name="org.hibernate"               level="WARN"/>
+    <logger name="com.zaxxer.hikari"           level="WARN"/>
+    <logger name="org.apache.kafka"            level="WARN"/>
+
+  </springProfile>
+
+</configuration>

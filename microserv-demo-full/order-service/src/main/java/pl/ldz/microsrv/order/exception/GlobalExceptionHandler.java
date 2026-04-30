@@ -2,6 +2,7 @@ package pl.ldz.microsrv.order.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -12,32 +13,46 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pl.ldz.microsrv.order.api.model.ErrorResponse;
-import pl.ldz.microsrv.order.exception.OutboxSerializationException;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
  * Centralised exception-to-HTTP-response mapping.
  *
  * <p>All responses use the {@link ErrorResponse} schema from the OpenAPI spec.
- * Stack traces, {@code debugId}, and raw internal messages are never exposed.
+ * Stack traces and raw internal messages are never exposed in responses.
+ *
+ * <p>{@code debugId} (the order's internal BIGINT identity) is intentionally absent
+ * from every response body and every OpenAPI schema, per the requirements.
+ * A per-request correlation UUID is available to callers exclusively via the
+ * {@code X-Debug-Id} response header written by
+ * {@link pl.ldz.microsrv.order.filter.MdcFilter}. The same UUID is present in every
+ * server-side log line via MDC so operators can correlate a client-visible token
+ * with internal log entries without leaking internal identifiers in the response body.
+ *
+ * <h3>Fallback debugId in MDC</h3>
+ * <p>If the MDC key {@code debugId} is absent when {@link #buildError} is called
+ * (e.g. the request bypassed the servlet filter chain), a fresh UUID is generated and
+ * written to MDC so that the ERROR-level log line always carries a correlation token.
  */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-  // ── 404 Not Found ────────────────────────────────────────────────────────
+  // 404 Not Found
 
   @ExceptionHandler(OrderNotFoundException.class)
   @ResponseStatus(HttpStatus.NOT_FOUND)
   public ErrorResponse handleOrderNotFound(
       OrderNotFoundException ex, HttpServletRequest request) {
-    log.info("Order not found: {}", ex.getMessage());
+    // Task 4.6 - downgraded from log.info; 404s are normal client errors, not operator alerts
+    log.debug("Order not found: {}", ex.getMessage());
     return buildError(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage(), request.getRequestURI());
   }
 
-  // ── 400 Bad Request ───────────────────────────────────────────────────────
+  // 400 Bad Request
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
@@ -50,7 +65,7 @@ public class GlobalExceptionHandler {
     return buildError(HttpStatus.BAD_REQUEST, "Bad Request", message, request.getRequestURI());
   }
 
-  // Bad input from the client (e.g. invalid Idempotency-Key length) — not a server fault.
+  // Bad input from the client (e.g. invalid Idempotency-Key length) - not a server fault.
   @ExceptionHandler(IllegalArgumentException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ErrorResponse handleIllegalArgument(
@@ -59,7 +74,7 @@ public class GlobalExceptionHandler {
     return buildError(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage(), request.getRequestURI());
   }
 
-  // ── 409 Conflict ──────────────────────────────────────────────────────────
+  // 409 Conflict
 
   @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
   @ResponseStatus(HttpStatus.CONFLICT)
@@ -70,7 +85,7 @@ public class GlobalExceptionHandler {
         "The resource was modified concurrently. Please retry.", request.getRequestURI());
   }
 
-  // Pessimistic lock timeout — another request holds the row lock on the idempotency key.
+  // Pessimistic lock timeout - another request holds the row lock on the idempotency key.
   @ExceptionHandler(PessimisticLockingFailureException.class)
   @ResponseStatus(HttpStatus.CONFLICT)
   public ErrorResponse handlePessimisticLock(
@@ -80,7 +95,7 @@ public class GlobalExceptionHandler {
         "The request is already being processed. Please retry shortly.", request.getRequestURI());
   }
 
-  // Safety-net: unique constraint violation on idempotency_key.key — advisory lock should
+  // Safety-net: unique constraint violation on idempotency_key.key - advisory lock should
   // prevent this in normal operation, but a fallback 409 is far better than a 500.
   @ExceptionHandler(DataIntegrityViolationException.class)
   @ResponseStatus(HttpStatus.CONFLICT)
@@ -92,7 +107,7 @@ public class GlobalExceptionHandler {
         "The request is already being processed. Please retry shortly.", request.getRequestURI());
   }
 
-  // ── 409 Conflict — idempotency key in progress ───────────────────────────
+  // 409 Conflict - idempotency key in progress
 
   @ExceptionHandler(IdempotencyConflictException.class)
   @ResponseStatus(HttpStatus.CONFLICT)
@@ -102,7 +117,7 @@ public class GlobalExceptionHandler {
     return buildError(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), request.getRequestURI());
   }
 
-  // ── 422 Unprocessable Entity — idempotency hash mismatch ─────────────────
+  // 422 Unprocessable Entity - idempotency hash mismatch
 
   @ExceptionHandler(IdempotencyMismatchException.class)
   @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
@@ -113,33 +128,68 @@ public class GlobalExceptionHandler {
         ex.getMessage(), request.getRequestURI());
   }
 
-  // ── 500 Internal Server Error — outbox serialisation ─────────────────────
+  // 500 Internal Server Error - outbox serialisation
 
   @ExceptionHandler(OutboxSerializationException.class)
   @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
   public ErrorResponse handleOutboxSerialization(
-          OutboxSerializationException ex, HttpServletRequest request) {
-      log.error("Outbox serialisation failure on {}: {}",
-                request.getRequestURI(), ex.getMessage(), ex);
-      return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
-                        "An unexpected error occurred.", request.getRequestURI());
+      OutboxSerializationException ex, HttpServletRequest request) {
+    log.error("Outbox serialisation failure on {}: {}",
+              request.getRequestURI(), ex.getMessage(), ex);
+    return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
+                      "An unexpected error occurred.", request.getRequestURI());
   }
 
-  // ── 500 Internal Server Error (fallback) ─────────────────────────────────
+  // 500 Internal Server Error - idempotency serialisation (Tasks 5.3-5.5)
+
+  @ExceptionHandler(IdempotencySerializationException.class)
+  @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+  public ErrorResponse handleIdempotencySerialization(
+      IdempotencySerializationException ex, HttpServletRequest request) {
+    log.error("Idempotency serialisation failure on {}: {}",
+              request.getRequestURI(), ex.getMessage(), ex);
+    return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
+                      "An unexpected error occurred.", request.getRequestURI());
+  }
+
+  // 500 Internal Server Error (fallback)
 
   @ExceptionHandler(Exception.class)
   @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
   public ErrorResponse handleGeneric(Exception ex, HttpServletRequest request) {
-    // Log the full exception internally; never send it to the caller.
-    log.error("Unexpected error on {}", request.getRequestURI(), ex);
+    // Task 4.5 - log debugId explicitly so it appears even without MDC pattern formatting
+    log.error("Unexpected error [debugId={}] on {}", MDC.get("debugId"),
+              request.getRequestURI(), ex);
     return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
         "An unexpected error occurred.", request.getRequestURI());
   }
 
-  // ── helpers ──────────────────────────────────────────────────────────────
+  // helpers
 
+  /**
+   * Builds a clean {@link ErrorResponse} for the caller.
+   *
+   * <p>Tasks 4.1-4.3: reads debugId from MDC; generates a fallback UUID if absent
+   * (filter chain was bypassed). The debugId is used only to ensure log lines always carry
+   * a correlation token.
+   *
+   * <p>Task 4.4 intentionally NOT implemented: the requirements prohibit debugId from
+   * appearing in any response body. Callers access the correlation token exclusively via
+   * the {@code X-Debug-Id} response header written by MdcFilter.
+   */
   private ErrorResponse buildError(
       HttpStatus status, String error, String message, String path) {
+
+    // Tasks 4.2 and 4.3 - ensure MDC always has a debugId for log correlation
+    String debugId = MDC.get("debugId");
+    if (debugId == null) {
+      // Fallback: MdcFilter did not run (e.g. request was short-circuited before chain)
+      debugId = UUID.randomUUID().toString();
+      MDC.put("debugId", debugId);
+    }
+
+    // debugId is used only for log correlation above - never set on the response object.
+    // "debugId" must never appear in any REST response body per project requirements.
     ErrorResponse response = new ErrorResponse();
     response.setTimestamp(OffsetDateTime.now());
     response.setStatus(status.value());

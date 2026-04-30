@@ -143,6 +143,11 @@ class OrderControllerIT extends AbstractControllerIT {
     assertThat(body.getCreatedAt()).isNotNull();
     assertThat(body.getUpdatedAt()).isNotNull();
 
+    // Task 9.6 — X-Debug-Id header must be present on 2xx responses (set by MdcFilter)
+    assertThat(response.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on successful 201 response")
+        .isNotBlank();
+
     // debugId must not appear in any response
     ResponseEntity<String> raw = restTemplate.exchange(
         ORDERS_URL,
@@ -150,6 +155,10 @@ class OrderControllerIT extends AbstractControllerIT {
         new HttpEntity<>(validRequest(), idempotencyHeaders()),
         String.class);
     assertThat(raw.getBody()).doesNotContain("debugId");
+    // Task 9.6 — also confirm header on this raw call
+    assertThat(raw.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on every response")
+        .isNotBlank();
   }
 
   /**
@@ -198,6 +207,10 @@ class OrderControllerIT extends AbstractControllerIT {
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     assertThat(response.getBody()).doesNotContain("debugId");
+    // Task 9.2 — X-Debug-Id header present on non-2xx response
+    assertThat(response.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 404 response")
+        .isNotBlank();
   }
 
   // ── GET /api/v1/orders ────────────────────────────────────────────────────
@@ -277,6 +290,10 @@ class OrderControllerIT extends AbstractControllerIT {
         String.class);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    // Task 9.2 — X-Debug-Id header present on 404 response
+    assertThat(response.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 404 updateOrder response")
+        .isNotBlank();
   }
 
   // ── DELETE /api/v1/orders/{id} ────────────────────────────────────────────
@@ -316,6 +333,10 @@ class OrderControllerIT extends AbstractControllerIT {
         String.class);
 
     assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    // Task 9.2 — X-Debug-Id header present on 404 response
+    assertThat(response.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 404 deleteOrder response")
+        .isNotBlank();
   }
 
   // ── Phase 4: 13.2 Idempotency Replay (POST) ──────────────────────────────
@@ -398,6 +419,10 @@ class OrderControllerIT extends AbstractControllerIT {
         .contains("error")
         .contains("message")
         .doesNotContain("debugId");
+    // Task 9.2 + 9.5 — X-Debug-Id header present on 422 response
+    assertThat(resp2.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 422 idempotency hash mismatch response")
+        .isNotBlank();
   }
 
   // ── Phase 4: 13.4 Idempotency In-Progress (POST) ─────────────────────────
@@ -440,6 +465,10 @@ class OrderControllerIT extends AbstractControllerIT {
 
     // 13.4.3 Response body is ErrorResponse, no debugId
     assertThat(response.getBody()).isNotNull().doesNotContain("debugId");
+    // Task 9.2 + 9.4 — X-Debug-Id header present on 409 conflict response
+    assertThat(response.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 409 idempotency in-progress response")
+        .isNotBlank();
   }
 
   // ── Phase 4: 13.5 + 13.6.1 Outbox Delivery Verification ──────────────────
@@ -561,6 +590,10 @@ class OrderControllerIT extends AbstractControllerIT {
 
     // 8.3: No debugId in response
     assertThat(body).doesNotContain("debugId");
+    // Task 9.2 + 9.5 — X-Debug-Id header present on 422 response
+    assertThat(secondResp.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 422 createOrder hash mismatch response")
+        .isNotBlank();
   }
 
   /**
@@ -612,6 +645,10 @@ class OrderControllerIT extends AbstractControllerIT {
 
     // 8.3: No debugId in response
     assertThat(body).doesNotContain("debugId");
+    // Task 9.2 + 9.5 — X-Debug-Id header present on 422 updateOrder hash mismatch response
+    assertThat(secondResp.getHeaders().getFirst("X-Debug-Id"))
+        .as("X-Debug-Id header must be present on 422 updateOrder hash mismatch response")
+        .isNotBlank();
   }
 
   // ── Phase 5: 7.6 Race-condition — concurrent POSTs with same key ──────────

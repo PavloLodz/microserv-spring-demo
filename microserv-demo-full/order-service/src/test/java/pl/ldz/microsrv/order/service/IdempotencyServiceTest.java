@@ -331,4 +331,28 @@ class IdempotencyServiceTest {
     }
   }
 
+  /**
+   * Task 8.5: Mocks ObjectMapper.writeValueAsBytes to throw JsonProcessingException.
+   * Task 8.6: The thrown exception must be IdempotencySerializationException
+   *           (not bare RuntimeException), with the original cause preserved.
+   */
+  @Test
+  @DisplayName("8.5-8.6 Jackson failure in computeHash wraps into IdempotencySerializationException")
+  void computeHash_jacksonFailure_throwsIdempotencySerializationException() throws Exception {
+    // Advisory lock granted so the service proceeds past the concurrency gate into computeHash
+    when(idempotencyKeyRepository.tryAdvisoryLock(anyLong())).thenReturn(true);
+
+    // Task 8.5: mock writeValueAsBytes to throw JsonProcessingException
+    when(objectMapper.writeValueAsBytes(any()))
+        .thenThrow(new com.fasterxml.jackson.core.JsonProcessingException("simulated failure") {});
+
+    // Task 8.6: must throw IdempotencySerializationException (not bare RuntimeException)
+    assertThatThrownBy(() -> idempotencyService.checkAndStore(KEY, REQUEST_OBJ))
+        .isInstanceOf(pl.ldz.microsrv.order.exception.IdempotencySerializationException.class)
+        .hasMessageContaining("Failed to serialise request for hashing")
+        .hasCauseInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+  }
+
+
+
 }

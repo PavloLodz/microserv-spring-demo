@@ -13,6 +13,7 @@ import pl.ldz.microsrv.order.entity.IdempotencyKey;
 import pl.ldz.microsrv.order.entity.IdempotencyStatus;
 import pl.ldz.microsrv.order.exception.IdempotencyConflictException;
 import pl.ldz.microsrv.order.exception.IdempotencyMismatchException;
+import pl.ldz.microsrv.order.exception.IdempotencySerializationException;
 import pl.ldz.microsrv.order.repository.IdempotencyKeyRepository;
 
 import java.security.MessageDigest;
@@ -136,7 +137,7 @@ public class IdempotencyService {
       record.setCreatedAt(OffsetDateTime.now());
       record.setExpiresAt(OffsetDateTime.now().plus(ttlHours, ChronoUnit.HOURS));
       idempotencyKeyRepository.save(record);
-      log.info("Idempotency key stored as IN_PROGRESS: key={}", key);
+      log.debug("Idempotency key stored as IN_PROGRESS: key={}", key);
       return Optional.empty();
     }
 
@@ -220,7 +221,7 @@ public class IdempotencyService {
       byte[] hash = digest.digest(json);
       return HexFormat.of().formatHex(hash);
     } catch (JsonProcessingException e) {
-      throw new RuntimeException("Failed to serialise request for hashing", e);
+      throw new IdempotencySerializationException("Failed to serialise request for hashing", e);
     }
   }
 }
