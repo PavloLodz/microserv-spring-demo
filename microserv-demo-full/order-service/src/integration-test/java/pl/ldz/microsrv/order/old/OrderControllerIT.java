@@ -1,4 +1,4 @@
-package pl.ldz.microsrv.order;
+package pl.ldz.microsrv.order.old;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,6 +20,9 @@ import org.springframework.test.context.TestPropertySource;
 import pl.ldz.microsrv.order.api.model.OrderListResponse;
 import pl.ldz.microsrv.order.api.model.OrderRequest;
 import pl.ldz.microsrv.order.api.model.OrderResponse;
+
+import pl.ldz.microsrv.order.AbstractControllerIT;
+import org.junit.jupiter.api.Disabled;
 
 import java.math.BigDecimal;
 import java.security.NoSuchAlgorithmException;
@@ -52,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
   properties = "spring.task.scheduling.pool.size=1")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@TestPropertySource(properties = "outbox.poll-interval-ms=1000")
+// @Disabled
 class OrderControllerIT extends AbstractControllerIT {
 
   private static final String ORDERS_URL = "/api/v1/orders";

@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
  * T9 — Integration test for the outbox {@code FAILED} terminal state.
  *
  * <p>This is a standalone top-level {@code @SpringBootTest} class rather than a nested class
- * inside {@link OrderControllerIT}. JUnit 5 nested classes with {@code @SpringBootTest} share
+ * inside {@link OrderController_FullFlowOrderedIT}. JUnit 5 nested classes with {@code @SpringBootTest} share
  * the enclosing class's Spring context, which means a {@code @MockBean} declared inside a
  * nested class does NOT create a fresh isolated context — it is applied to the already-loaded
  * enclosing context, causing race conditions and unpredictable mock behaviour.
@@ -48,7 +48,7 @@ import static org.mockito.Mockito.when;
     "outbox.max-retry=2",
     "outbox.poll-interval-ms=200"
 })
-class OutboxFailedStateIT extends AbstractControllerIT {
+class OutboxFailedStateIT extends AbstractNoKafkaControllerIT {
 
   /**
    * Replaces the real {@code KafkaTemplate} bean for this context.
