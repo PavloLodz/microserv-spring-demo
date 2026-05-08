@@ -6,9 +6,12 @@ import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -59,7 +62,8 @@ public class GlobalExceptionHandler {
   public ErrorResponse handleValidation(
       MethodArgumentNotValidException ex, HttpServletRequest request) {
     String message = ex.getBindingResult().getFieldErrors().stream()
-        .map(FieldError::getDefaultMessage)
+        // .map(FieldError::getDefaultMessage)
+        .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
         .collect(Collectors.joining("; "));
     log.debug("Validation failure on {}: {}", request.getRequestURI(), message);
     return buildError(HttpStatus.BAD_REQUEST, "Bad Request", message, request.getRequestURI());
@@ -163,6 +167,57 @@ public class GlobalExceptionHandler {
     return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "Internal Server Error",
         "An unexpected error occurred.", request.getRequestURI());
   }
+
+
+
+
+  @ExceptionHandler(HttpMessageNotReadableException.class)
+  public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(
+      HttpMessageNotReadableException ex, HttpServletRequest request) {
+    log.warn("Unreadable request body: {}", ex.getMessage());
+
+
+    ErrorResponse response = new ErrorResponse();
+    response.setTimestamp(OffsetDateTime.now());
+    response.setStatus(HttpStatus.BAD_REQUEST.value());
+    response.setError("Request body is missing or malformed");
+    response.setMessage(response.getError());
+
+    return ResponseEntity
+        .status(HttpStatus.BAD_REQUEST)
+        .body(response);
+
+
+  }
+
+  @ExceptionHandler(MissingRequestHeaderException.class)
+  public ResponseEntity<ErrorResponse> handleMissingRequestHeader(
+      MissingRequestHeaderException ex, HttpServletRequest request) {
+    log.warn("Missing required header '{}': {}", ex.getHeaderName(), ex.getMessage());
+    /*
+    return ResponseEntity
+        .status(HttpStatus.BAD_REQUEST)
+        .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(),
+            "Required header '" + ex.getHeaderName() + "' is missing"));
+    */
+
+    ErrorResponse response = new ErrorResponse();
+    response.setTimestamp(OffsetDateTime.now());
+    response.setStatus(HttpStatus.BAD_REQUEST.value());
+    response.setError("Required header '" + ex.getHeaderName() + "' is missing");
+    response.setMessage(response.getError());
+
+    return ResponseEntity
+        .status(HttpStatus.BAD_REQUEST)
+        .body(response);
+
+
+  }
+
+
+
+
+
 
   // helpers
 

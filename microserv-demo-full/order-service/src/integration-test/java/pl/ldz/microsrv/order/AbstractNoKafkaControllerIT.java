@@ -8,8 +8,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -25,48 +23,60 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <p>Use this base class instead of {@link AbstractControllerIT} when the test scenario
  * deliberately makes Kafka unavailable (e.g. to verify the outbox FAILED terminal state).
+ *
+ * <p>Uses the Testcontainers <em>Singleton pattern</em> (static initializer, no
+ * {@code @Container}) so the container survives across all IT classes in the same JVM fork.
+ * See {@link AbstractControllerIT} for a full explanation of why {@code @Container} on an
+ * abstract class's static field causes {@code Connection refused} on the second IT class.
  */
-@Testcontainers(disabledWithoutDocker = false)
 public abstract class AbstractNoKafkaControllerIT {
 
-    @Container
-    protected static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine")
-                    .withDatabaseName("order_test")
-                    .withUsername("test")
-                    .withPassword("test");
+  // ── Singleton container ──────────────────────────────────────────────────
+  // Started once; stopped by Testcontainers' JVM shutdown hook.
 
-    /**
-     * Fails the entire test class when Docker is not reachable, consistent with the
-     * policy in {@link AbstractControllerIT}.
-     */
-    @BeforeAll
-    static void requireDocker() {
-        if (DockerClientFactory.instance() == null) {
-            fail("DockerClientFactory.instance() == null");
-        }
-        if (!DockerClientFactory.instance().isDockerAvailable()) {
-            fail("DockerClientFactory.instance().isDockerAvailable() == false, so it is not available!");
-        }
+  protected static final PostgreSQLContainer<?> POSTGRES;
+
+  static {
+    POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+        .withDatabaseName("order_test")
+        .withUsername("test")
+        .withPassword("test");
+    POSTGRES.start();
+  }
+
+  /**
+   * Fails the entire test class when Docker is not reachable, consistent with the
+   * policy in {@link AbstractControllerIT}.
+   */
+  @BeforeAll
+  static void requireDocker() {
+    if (DockerClientFactory.instance() == null) {
+      fail("DockerClientFactory.instance() == null");
     }
-
-    /**
-     * Wires Postgres from the container. Kafka bootstrap-servers is set to an unreachable
-     * address; {@code spring.kafka.admin.fail-fast=false} prevents context startup failure
-     * when the broker is absent. Subclasses supply a {@code @MockBean KafkaTemplate} so
-     * no real Kafka sends are attempted.
-     */
-    @DynamicPropertySource
-    static void overrideProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        // Point Kafka at an unreachable address — KafkaTemplate is mocked in every subclass
-        // so no real broker traffic occurs. fail-fast=false prevents startup abort.
-        registry.add("spring.kafka.bootstrap-servers", () -> "localhost:9");
-        registry.add("spring.kafka.admin.fail-fast", () -> "false");
+    if (!DockerClientFactory.instance().isDockerAvailable()) {
+      fail("DockerClientFactory.instance().isDockerAvailable() == false, so it is not available!");
     }
+  }
 
-    @Autowired protected TestRestTemplate restTemplate;
-    @Autowired protected ObjectMapper objectMapper;
+  /**
+   * Wires Postgres from the container. Kafka bootstrap-servers is set to an unreachable
+   * address; {@code spring.kafka.admin.fail-fast=false} prevents context startup failure
+   * when the broker is absent. Subclasses supply a {@code @MockBean KafkaTemplate} so
+   * no real Kafka sends are attempted.
+   */
+  @DynamicPropertySource
+  static void overrideProperties(DynamicPropertyRegistry registry) {
+    registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+    registry.add("spring.datasource.username", POSTGRES::getUsername);
+    registry.add("spring.datasource.password", POSTGRES::getPassword);
+    // Point Kafka at an unreachable address — KafkaTemplate is mocked in every subclass
+    // so no real broker traffic occurs. fail-fast=false prevents startup abort.
+    registry.add("spring.kafka.bootstrap-servers", () -> "localhost:9");
+    registry.add("spring.kafka.admin.fail-fast", () -> "false");
+  }
+
+  @Autowired
+  protected TestRestTemplate restTemplate;
+  @Autowired
+  protected ObjectMapper objectMapper;
 }

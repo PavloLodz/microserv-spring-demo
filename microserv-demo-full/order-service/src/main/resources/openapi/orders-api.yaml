@@ -222,7 +222,9 @@ components:
           description: UUID of the customer placing the order
         totalAmount:
           type: number
-          description: Total monetary amount of the order
+          format: decimal
+          description: Total monetary amount of the order; must be greater than zero
+          minimum: 0.01
 
     OrderResponse:
       type: object
